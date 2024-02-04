@@ -1,2 +1,2 @@
 # SF-Robot
-Science Fair Robot 2022 - 2024
+Science Fair Underwater Robot 2022 - 2024
