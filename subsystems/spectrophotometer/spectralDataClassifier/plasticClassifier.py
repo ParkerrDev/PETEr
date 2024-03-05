@@ -15,7 +15,7 @@ def load_json_lines(filename):
         for line in file:
             try:
                 line = line.strip().rstrip(",")
-                if line and not line.startswith("#"):
+                if line and not line.startswith("//"):
                     json_obj = json.loads(line)
                     data.append(json_obj)
             except json.JSONDecodeError:
@@ -39,15 +39,32 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 model_filename = f"{script_dir}/trained_model.joblib"
 best_model, model_loaded = load_model(model_filename)
 
+# Load data from JSON lines
 non_plastics_list = load_json_lines(
-    os.path.join(script_dir, "training_data/non_plastic_data.json")
+    os.path.join(script_dir, "training_data/with_glass/non_plastic_data.json")
 )
 plastics_list = load_json_lines(
-    os.path.join(script_dir, "training_data/plastic_data.json")
+    os.path.join(script_dir, "training_data/with_glass/plastic_data.json")
 )
 
-non_plastics = pd.DataFrame(non_plastics_list)
-plastics = pd.DataFrame(plastics_list)
+# Convert lists to DataFrames to easily drop duplicates
+non_plastics_df = pd.DataFrame(non_plastics_list).drop_duplicates()
+plastics_df = pd.DataFrame(plastics_list).drop_duplicates()
+
+# Check lengths and balance if necessary
+if len(plastics_df) < len(non_plastics_df):
+    length_difference = len(non_plastics_df) - len(plastics_df)
+    print(f"Balancing non_plastics to plastics: Ignoring {length_difference} samples.")
+    # Note: This reduces the non_plastics_df without considering the potential importance of each record
+    non_plastics_df = non_plastics_df.iloc[: len(plastics_df)]
+
+# If you need to work with lists later on
+non_plastics_list = non_plastics_df.to_dict("records")
+plastics_list = plastics_df.to_dict("records")
+
+# Continuing with DataFrames for further operations is recommended if possible
+non_plastics = non_plastics_df
+plastics = plastics_df
 
 non_plastics["is_plastic"] = 0
 plastics["is_plastic"] = 1
@@ -73,7 +90,7 @@ if not model_loaded:
     param_grid = {
         "n_estimators": [100, 200, 300],
         "max_depth": [None, 10, 20, 30],
-        "min_samples_split": [2, 4, 7],
+        "min_samples_split": [2, 5, 10],
         "min_samples_leaf": [1, 2, 4],
     }
     clf = RandomForestClassifier(random_state=42)
@@ -94,7 +111,34 @@ accuracy = accuracy_score(y_test, y_pred)
 feature_importances = pd.Series(
     best_model.feature_importances_, index=X.columns
 ).sort_values(ascending=False)
-print(feature_importances)
+
+
+nanometer_dictionary = {
+    "A": "410nm",
+    "B": "435nm",
+    "C": "460nm",
+    "D": "485nm",
+    "E": "510nm",
+    "F": "535nm",
+    "G": "560nm",
+    "H": "585nm",
+    "R": "610nm",
+    "I": "645nm",
+    "S": "680nm",
+    "J": "705nm",
+    "T": "730nm",
+    "U": "760nm",
+    "V": "810nm",
+    "W": "860nm",
+    "K": "900nm",
+    "L": "940nm",
+}
+
+print("Predicted Feature Importances: ")
+for feature, importance in feature_importances.items():
+    nanometer = nanometer_dictionary.get(feature[0])
+    print(f"{feature}: {importance}: {nanometer}")
+
 
 confirmed_plastic = '{"A":0.87,"B":12.54,"C":118.20,"D":41.07,"E":27.13,"F":14.71,"G":3.53,"H":3.34,"R":7.03,"I":4.47,"S":1.96,"J":0.89,"T":0.79,"U":0.81,"V":0.86,"W":1.06,"K":0.73,"L":0.00}'
 confirmed_non_plastic = None
@@ -113,9 +157,14 @@ if samples:
     single_data_df = pd.DataFrame(samples)
     print(single_data_df)
 
+total_samples = int(len(plastics_list) + len(non_plastics_list))
+
 print(f"Optimized Model Accuracy: {accuracy}")
 print(f"Non-Plastic Samples: {len(non_plastics_list)}")
 print(f"Plastic Samples: {len(plastics_list)}")
+print(f"Total Samples: {total_samples}")
+print(f"Minutes Training of Training Data: {int(total_samples/60)}")
+
 
 probabilities = best_model.predict_proba(single_data_df)
 for i, prob in enumerate(probabilities[:, 1]):  # Index 1 for plastic
