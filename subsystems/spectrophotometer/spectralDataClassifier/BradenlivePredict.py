@@ -1,98 +1,139 @@
 import sys
 import json
-import numpy as np
 import pandas as pd
-import tensorflow as tf
+import numpy as np
+import statistics
+from statistics import stdev
+import random
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
     QPushButton,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
+    QTextEdit,
+    QFileDialog,
 )
 from PyQt5.QtCore import QThread, pyqtSignal
 import serial
-import joblib
-from sklearn.preprocessing import StandardScaler
+from joblib import load
 import os
+from combinedSpectralDataClassifer import combinedClassifier
 
-# Assuming these paths are correctly set to where your models and data are located
+pList = []
+sList = []
+rList = []
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
-TRAINED_MODEL_FILE_RF = f"{script_dir}/trained_model.joblib"
-TRAINED_MODEL_FILE_NN = f"{script_dir}/trained_nn_model"
-
-
-# Function to load models (assumes RandomForest and Neural Network models are saved)
-def load_models():
-    rf_model = joblib.load(TRAINED_MODEL_FILE_RF)
-    nn_model = tf.keras.models.load_model(TRAINED_MODEL_FILE_NN)
-    return rf_model, nn_model
+model_filename = f"{script_dir}/trained_model.joblib"
 
 
 class DataThread(QThread):
     data_signal = pyqtSignal(str)
+    global pList
+    global sList
+    global rList
+    global decoded_data
+    global result
 
-    def __init__(self, arduino, rf_model, nn_model, scaler):
-        super().__init__()
+    def statistics(self, list1):
+        global pList
+        global sList
+        mean = statistics.mean(list1)
+        mode = statistics.mode(list1)
+        stdev = statistics.stdev(list1)
+        minimum = np.quantile(list1, 0)
+        Q1 = np.quantile(list1, 0.25)
+        median = np.quantile(list1, 0.5)
+        Q3 = np.quantile(list1, 0.75)
+        maximum = np.quantile(list1, 1)
+        IQR = Q3 - Q1
+        return f"mean: {mean} \nmode: {mode} \nstandard deviation: {stdev} \nminimum: {minimum} \nQuartile 1: {Q1} \nmedian: {median} \nQuartile 3: {Q3} \nmaximum: {maximum} \nIQR: {IQR}"
+
+    def __init__(self, arduino, filename, model):
+        super(DataThread, self).__init__()
         self.arduino = arduino
-        self.rf_model = rf_model
-        self.nn_model = nn_model
-        self.scaler = scaler
+        self.filename = filename
+        self.model = model
+        self.is_running = True
 
     def run(self):
-        while True:
-            if self.arduino.inWaiting() > 0:
-                data = self.arduino.readline()
-                decoded_data = data.decode("utf-8").strip()
-                # Process and predict
+        while self.is_running:
+            data = self.arduino.readline()
+            if data:
+                decoded_data = data.decode("utf-8", errors="ignore").strip()
                 self.process_data(decoded_data)
 
     def process_data(self, decoded_data):
         try:
-            data_dict = json.loads(decoded_data)
-            data_df = pd.DataFrame([data_dict])
-            X = self.scaler.transform(data_df)  # Apply scaling
+            global rList
+            prediction = combinedClassifier.combined_predict(str(decoded_data))
+            result = f"Prediction: {prediction:.4f}"
+            rList.append(decoded_data + " ; " + result)
+            self.data_signal.emit(result)
 
-            # Make predictions using both models
-            rf_proba = self.rf_model.predict_proba(X)[0][1]
-            nn_proba = self.nn_model.predict(X)[0][0]
-
-            # Combine and emit the result
-            combined_proba = (rf_proba + nn_proba) / 2
-            self.data_signal.emit(
-                f"Combined Prediction Probability: {combined_proba:.4f}"
-            )
+            if len(pList) < 301:  # Only append if less than 301 predictions
+                pList.append(prediction)
+            else:
+                self.data_signal.emit("STOPPED RECORDING")
+                self.stop()  # Stop collecting data if 301 predictions have been reached
         except Exception as e:
             print(f"Error processing data: {e}")
 
+    def stop(self):
+        self.is_running = False
+        self.arduino.close()  # Close the serial connection
+        self.wait()  # Wait for the thread to finish
+        self.write_to_file()  # Write pList and sList to a file
+
+    def write_to_file(self):
+        global pList
+        global sList
+        global rList
+        self_dir = os.path.dirname(os.path.abspath(__file__))
+        filename = f"{self_dir}/recorded_values.txt"
+        sList = random.sample(pList, 30)
+        with open(filename, "w") as f:
+            for value in rList:
+                f.write(f"{value}\n")
+            for value in pList:
+                f.write(f"{value}\n")
+            f.write(self.statistics(pList))
+            for value in sList:
+                f.write(f"{value}\n")
+            f.write(self.statistics(sList))
+        print(f"Data saved to {filename}")
+
 
 class MainWindow(QMainWindow):
-    def __init__(self, rf_model, nn_model, scaler):
-        super().__init__()
-        self.setWindowTitle("Live Predictions")
-        self.setGeometry(100, 100, 600, 400)
+    def __init__(self, model):
+        super(MainWindow, self).__init__()
+        self.model = model
+        self.initUI()
 
-        # Setup UI components
-        self.text_edit = QTextEdit()
-        self.text_edit.setReadOnly(True)
-        self.start_button = QPushButton("Start")
-        self.start_button.clicked.connect(self.start_recording)
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.clicked.connect(self.stop_recording)
+    def initUI(self):
+        self.setWindowTitle("AS7265x Live Spectral PETE Predictions")
+        self.setGeometry(100, 100, 800, 600)
 
         layout = QVBoxLayout()
+        self.text_edit = QTextEdit()
+        self.text_edit.setReadOnly(True)
         layout.addWidget(self.text_edit)
+
+        self.start_button = QPushButton("Start")
+        self.start_button.clicked.connect(self.start_recording)
         layout.addWidget(self.start_button)
+
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self.stop_recording)
         layout.addWidget(self.stop_button)
 
         central_widget = QWidget()
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
 
-        # Setup serial port and data thread
-        self.arduino = serial.Serial("/dev/ttyACM0", 9600)  # Adjust as needed
-        self.data_thread = DataThread(self.arduino, rf_model, nn_model, scaler)
+        self.arduino = serial.Serial("/dev/ttyACM0", 115200)
+        self.data_thread = DataThread(self.arduino, "output.txt", self.model)
         self.data_thread.data_signal.connect(self.update_text)
 
     def start_recording(self):
@@ -100,22 +141,16 @@ class MainWindow(QMainWindow):
             self.data_thread.start()
 
     def stop_recording(self):
-        if self.data_thread.isRunning():
-            self.data_thread.terminate()
+        self.data_thread.stop()
 
     def update_text(self, text):
         self.text_edit.append(text)
 
 
 if __name__ == "__main__":
+    model = load(model_filename)  # Load your trained model
+
     app = QApplication(sys.argv)
-
-    # Load models
-    rf_model, nn_model = load_models()
-
-    # Assume scaler is prepared (in real use, fit to your training data)
-    scaler = StandardScaler()
-
-    mainWindow = MainWindow(rf_model, nn_model, scaler)
+    mainWindow = MainWindow(model)
     mainWindow.show()
     sys.exit(app.exec_())
