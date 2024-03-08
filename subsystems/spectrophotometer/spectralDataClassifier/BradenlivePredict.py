@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
 
-        self.arduino = serial.Serial("/dev/ttyACM0", 115200)
+        self.arduino = serial.Serial("COM3", 115200)
         self.data_thread = DataThread(self.arduino, "output.txt", self.model)
         self.data_thread.data_signal.connect(self.update_text)
 
