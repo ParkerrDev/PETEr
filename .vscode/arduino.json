@@ -1,6 +1,0 @@
-{
-    "port": "/dev/ttyACM0",
-    "board": "arduino:avr:unomini",
-    "programmer": "avrisp",
-    "sketch": "arduino/SparkFun_AS7265x_Arduino_Library/scripts/spectroJson/spectroJson.ino"
-}
