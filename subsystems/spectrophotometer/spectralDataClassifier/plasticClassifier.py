@@ -8,20 +8,14 @@ from sklearn.impute import SimpleImputer
 from joblib import dump, load
 
 
-def load_json_lines(filename):
-    """Load JSON lines from file and skip improper lines."""
-    data = []
-    with open(filename, "r") as file:
-        for line in file:
-            try:
-                line = line.strip().rstrip(",")
-                if line and not line.startswith("//"):
-                    json_obj = json.loads(line)
-                    data.append(json_obj)
-            except json.JSONDecodeError:
-                print(f"Skipping line due to JSONDecodeError: {line}")
-    return data
-
+def load_csv_data(filename):
+    """Load data from CSV file."""
+    try:
+        data = pd.read_csv(filename)
+        return data.to_dict('records')
+    except Exception as e:
+        print(f"Error loading CSV file: {e}")
+        return []
 
 def load_model(model_filename):
     """Check for a saved model and load it."""
@@ -33,18 +27,17 @@ def load_model(model_filename):
         print("No pre-trained model found. Proceeding to train a new model.")
         return None, False
 
-
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 model_filename = f"{script_dir}/trained_model.joblib"
 best_model, model_loaded = load_model(model_filename)
 
-# Load data from JSON lines
-non_plastics_list = load_json_lines(
-    os.path.join(script_dir, "training_data/with_glass/non_plastic_data.json")
+# Load data from CSV files
+non_plastics_list = load_csv_data(
+    os.path.join(script_dir, "training_data/with_glass/non_plastic_data.csv")
 )
-plastics_list = load_json_lines(
-    os.path.join(script_dir, "training_data/with_glass/plastic_data.json")
+plastics_list = load_csv_data(
+    os.path.join(script_dir, "training_data/with_glass/plastic_data.csv")
 )
 
 # Convert lists to DataFrames to easily drop duplicates
@@ -80,9 +73,11 @@ data_imputed["is_plastic"] = data["is_plastic"].values
 
 X = data_imputed.drop("is_plastic", axis=1)
 y = data_imputed["is_plastic"]
+# Apply row-wise mean centering
+X_centered = X.sub(X.mean(axis=1), axis=0)
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
+X_train_centered, X_test_centered, y_train, y_test = train_test_split(
+    X_centered, y, test_size=0.2, random_state=42
 )
 
 if not model_loaded:
@@ -97,7 +92,7 @@ if not model_loaded:
     grid_search = GridSearchCV(
         estimator=clf, param_grid=param_grid, cv=3, n_jobs=-1, verbose=2
     )
-    grid_search.fit(X_train, y_train)
+    grid_search.fit(X_train_centered, y_train)
 
     best_model = grid_search.best_estimator_
 
@@ -105,7 +100,7 @@ if not model_loaded:
     dump(best_model, model_filename)
     print(f"Model trained and saved as {model_filename}")
 
-y_pred = best_model.predict(X_test)
+y_pred = best_model.predict(X_test_centered)
 accuracy = accuracy_score(y_test, y_pred)
 
 feature_importances = pd.Series(
@@ -155,6 +150,7 @@ if confirmed_non_plastic != "" and confirmed_non_plastic is not None:
 
 if samples:
     single_data_df = pd.DataFrame(samples)
+    single_data_df_centered = single_data_df.sub(single_data_df.mean(axis=1), axis=0)
     print(single_data_df)
 
 total_samples = int(len(plastics_list) + len(non_plastics_list))
@@ -166,7 +162,7 @@ print(f"Total Samples: {total_samples}")
 print(f"Minutes Training of Training Data: {int(total_samples/60)}")
 
 
-probabilities = best_model.predict_proba(single_data_df)
+probabilities = best_model.predict_proba(single_data_df_centered)
 for i, prob in enumerate(probabilities[:, 1]):  # Index 1 for plastic
     if i == 0:
         print(

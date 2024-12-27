@@ -1,7 +1,0 @@
-{
-    "board": "arduino:avr:unomini",
-    "port": "/dev/ttyACM0",
-    "programmer": "avrisp",
-    "sketch": "sketch.ino",
-    "output": "build"
-}
