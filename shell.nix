@@ -10,6 +10,7 @@ pkgs.mkShell {
     pkgs.python3Packages.tkinter
     pkgs.python3Packages.joblib
     pkgs.python3Packages.scikit-learn
+    pkgs.python3Packages.pyqt5
   ];
 
   shellHook = ''
