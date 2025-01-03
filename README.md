@@ -10,5 +10,6 @@ Autonomous Robotic Approach to Freshwater Micro-Polyethylene Terephthalate Filtr
 This repository serves as PoC code for subsystems of an underwater submarine robot.
 
 ## Scectral Analysis
-![image](https://github.com/user-attachments/assets/0ab76df9-1b3a-419b-9c44-6f29768f9bea)
+<img src="as7265x.jpg" width="300px"/> 
+
 PETER uses a AS7265x SparkFun Triad Spectroscopy Sensor and Machine Learning to determine the probability that a sample of light in any given moment is PET(E) plastic.
